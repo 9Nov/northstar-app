@@ -198,8 +198,8 @@ export default function DashboardPage() {
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={{ borderRadius: '12px', border: '1px solid #e5e7eb', fontSize: 12 }}
-                  formatter={(value: any, name: string | undefined) => {
-                    const safeName = name ?? ''
+                  formatter={(value: any, name: any) => {
+                    const safeName = String(name ?? '')
                     const isUsed = safeName.endsWith('__used')
                     const sName = safeName.replace(/__used$|__remaining$/, '')
                     return [value, `${sName} (${isUsed ? 'ใช้แล้ว' : 'เหลือ'})`]
