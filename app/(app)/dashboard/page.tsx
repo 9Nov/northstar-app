@@ -205,13 +205,7 @@ export default function DashboardPage() {
                     return [value, `${sName} (${isUsed ? 'ใช้แล้ว' : 'เหลือ'})`]
                   }}
                 />
-                <Legend
-                  payload={sections.map((s: any, i: number) => ({
-                    value: s.name, type: 'rect' as const,
-                    color: SECTION_COLORS[i % SECTION_COLORS.length],
-                  }))}
-                  wrapperStyle={{ fontSize: 11, paddingTop: 12 }}
-                />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 12 }} />
                 {sections.map((s: any, i: number) => {
                   const baseColor = SECTION_COLORS[i % SECTION_COLORS.length]
                   return [
