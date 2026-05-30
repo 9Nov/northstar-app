@@ -108,7 +108,7 @@ export default function DashboardPage() {
                         {row.sectionName}
                       </td>
                       {northstarTypes.map((t: any) => {
-                        const cell = typeData.get(t.id)
+                        const cell = typeData.get(t.id) as { quota: number; used: number; remaining: number } | undefined
                         const quota = cell?.quota ?? 0
                         const used = cell?.used ?? 0
                         const remaining = cell?.remaining ?? 0
