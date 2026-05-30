@@ -1,41 +1,45 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 
-function getSupabaseUrl() {
+function getUrl() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!url || url === 'your_supabase_url_here') throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set')
-  return url
+  if (!url || url.includes('your_supabase')) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set')
+  return url.replace(/\/rest\/v1\/?$/, '') // strip /rest/v1 if mistakenly included
 }
 
-let _supabase: SupabaseClient | null = null
-let _supabaseAdmin: SupabaseClient | null = null
-
-export function getSupabase() {
-  if (!_supabase) {
-    _supabase = createClient(getSupabaseUrl(), process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-  }
-  return _supabase
+function getAnonKey() {
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 }
 
-export function getSupabaseAdmin() {
-  if (!_supabaseAdmin) {
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    _supabaseAdmin = createClient(getSupabaseUrl(), key)
-  }
-  return _supabaseAdmin
+function getServiceKey() {
+  return process.env.SUPABASE_SERVICE_ROLE_KEY ?? getAnonKey()
 }
 
-// Convenience aliases — use these in client components
-export const supabase = {
-  channel: (...args: Parameters<SupabaseClient['channel']>) => getSupabase().channel(...args),
-  removeChannel: (...args: Parameters<SupabaseClient['removeChannel']>) => getSupabase().removeChannel(...args),
-  from: (...args: Parameters<SupabaseClient['from']>) => getSupabase().from(...args),
+// Browser/client-side client (singleton)
+let _browser: ReturnType<typeof createClient> | null = null
+export function getBrowserClient() {
+  if (typeof window === 'undefined') return createClient(getUrl(), getAnonKey())
+  if (!_browser) _browser = createClient(getUrl(), getAnonKey())
+  return _browser
 }
 
-// Server-side admin client
-export const supabaseAdmin = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    const client = getSupabaseAdmin()
-    const val = (client as any)[prop]
-    return typeof val === 'function' ? val.bind(client) : val
+// Server-side admin client (new instance per call is fine for server)
+export function getAdminClient() {
+  return createClient(getUrl(), getServiceKey())
+}
+
+// Named exports for convenience
+export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_t, prop) {
+    const c = getBrowserClient()
+    const v = (c as any)[prop]
+    return typeof v === 'function' ? v.bind(c) : v
+  },
+})
+
+export const supabaseAdmin = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_t, prop) {
+    const c = getAdminClient()
+    const v = (c as any)[prop]
+    return typeof v === 'function' ? v.bind(c) : v
   },
 })
