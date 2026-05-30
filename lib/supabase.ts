@@ -1,45 +1,45 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-function getUrl() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!url || url.includes('your_supabase')) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set')
-  return url.replace(/\/rest\/v1\/?$/, '') // strip /rest/v1 if mistakenly included
+function getUrl(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+  return url.replace(/\/rest\/v1\/?$/, '')
 }
 
-function getAnonKey() {
-  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-}
-
-function getServiceKey() {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY ?? getAnonKey()
-}
-
-// Browser/client-side client (singleton)
-let _browser: ReturnType<typeof createClient> | null = null
-export function getBrowserClient() {
-  if (typeof window === 'undefined') return createClient(getUrl(), getAnonKey())
-  if (!_browser) _browser = createClient(getUrl(), getAnonKey())
+// Browser singleton
+let _browser: SupabaseClient | null = null
+export function getBrowserClient(): SupabaseClient {
+  if (typeof window === 'undefined') {
+    return createClient(getUrl(), process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  }
+  if (!_browser) {
+    _browser = createClient(getUrl(), process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  }
   return _browser
 }
 
-// Server-side admin client (new instance per call is fine for server)
-export function getAdminClient() {
-  return createClient(getUrl(), getServiceKey())
+// Server admin client
+export function getAdminClient(): SupabaseClient {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  return createClient(getUrl(), key)
 }
 
-// Named exports for convenience
-export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
-  get(_t, prop) {
-    const c = getBrowserClient()
-    const v = (c as any)[prop]
-    return typeof v === 'function' ? v.bind(c) : v
-  },
-})
+// Convenience exports
+// Client-side: use getBrowserClient() for realtime
+export const supabase = {
+  get channel() { return getBrowserClient().channel.bind(getBrowserClient()) },
+  get removeChannel() { return getBrowserClient().removeChannel.bind(getBrowserClient()) },
+  get from() { return getBrowserClient().from.bind(getBrowserClient()) },
+}
 
-export const supabaseAdmin = new Proxy({} as ReturnType<typeof createClient>, {
-  get(_t, prop) {
-    const c = getAdminClient()
-    const v = (c as any)[prop]
-    return typeof v === 'function' ? v.bind(c) : v
-  },
-})
+// Server-side: supabaseAdmin is a getter that returns a fresh admin client
+// Use in API routes: supabaseAdmin.from(...)
+export const supabaseAdmin: SupabaseClient = new Proxy(
+  {} as SupabaseClient,
+  {
+    get(_target, prop: string) {
+      const client = getAdminClient()
+      const value = (client as any)[prop]
+      return typeof value === 'function' ? (value as Function).bind(client) : value
+    },
+  }
+)
