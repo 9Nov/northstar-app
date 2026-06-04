@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -24,6 +24,12 @@ export async function GET() {
   return NextResponse.json({ registration, round })
 }
 
+const ERROR_MESSAGES: Record<string, string> = {
+  'round not open': 'รอบนี้ยังไม่เปิดรับลงทะเบียน หรือปิดแล้ว',
+  'quota not found': 'ไม่พบ Quota สำหรับ Section และ Northstar Type ที่เลือก',
+  'quota full': 'Quota ของ Section นี้เต็มแล้ว สำหรับ Northstar Type ที่เลือก',
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session || (session.user as any).role !== 'user') {
@@ -39,63 +45,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'ข้อมูลไม่ครบถ้วน' }, { status: 400 })
   }
 
-  // Check round is open
-  const { data: round } = await supabaseAdmin
-    .from('rounds')
-    .select('is_open')
-    .eq('id', roundId)
-    .single()
+  // Call atomic DB function — uses FOR UPDATE lock on quota row to prevent
+  // race conditions where concurrent requests both pass the quota check
+  const { data, error } = await supabaseAdmin.rpc('register_northstar', {
+    p_user_id: userId,
+    p_section_id: sectionId,
+    p_round_id: roundId,
+    p_northstar_type_id: northstar_type_id,
+  })
 
-  if (!round?.is_open) {
-    return NextResponse.json({ error: 'รอบนี้ยังไม่เปิดรับลงทะเบียน หรือปิดแล้ว' }, { status: 400 })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  const result = data as { success?: boolean; action?: string; error?: string; status?: number }
+
+  if (result.error) {
+    const message = ERROR_MESSAGES[result.error] ?? result.error
+    return NextResponse.json({ error: message }, { status: result.status ?? 400 })
   }
 
-  // Find quota row
-  const { data: quotaRow } = await supabaseAdmin
-    .from('round_section_quotas')
-    .select('id, quota')
-    .eq('round_id', roundId)
-    .eq('section_id', sectionId)
-    .eq('northstar_type_id', northstar_type_id)
-    .single()
-
-  if (!quotaRow) {
-    return NextResponse.json({ error: 'ไม่พบ Quota สำหรับ Section และ Northstar Type ที่เลือก' }, { status: 400 })
-  }
-
-  // Count used quota
-  const { count: usedCount } = await supabaseAdmin
-    .from('registrations')
-    .select('*', { count: 'exact', head: true })
-    .eq('round_section_quota_id', quotaRow.id)
-
-  if ((usedCount ?? 0) >= quotaRow.quota) {
-    return NextResponse.json({ error: 'Quota ของ Section นี้เต็มแล้ว สำหรับ Northstar Type ที่เลือก' }, { status: 400 })
-  }
-
-  // Check existing registration
-  const { data: existing } = await supabaseAdmin
-    .from('registrations')
-    .select('id, round_section_quota_id')
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (existing) {
-    // UPDATE
-    const { error } = await supabaseAdmin
-      .from('registrations')
-      .update({ round_section_quota_id: quotaRow.id })
-      .eq('id', existing.id)
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ success: true, action: 'updated' })
-  } else {
-    // INSERT
-    const { error } = await supabaseAdmin
-      .from('registrations')
-      .insert({ user_id: userId, round_section_quota_id: quotaRow.id })
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ success: true, action: 'created' }, { status: 201 })
-  }
+  const httpStatus = result.status === 201 ? 201 : 200
+  return NextResponse.json({ success: true, action: result.action }, { status: httpStatus })
 }
