@@ -1,7 +1,35 @@
-import { NextAuthOptions } from 'next-auth'
+﻿import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from './supabase'
+
+// In-memory rate limiter: max 5 failed attempts per username per 15 minutes
+// Resets on successful login. Works within a single serverless instance.
+const failedAttempts = new Map<string, { count: number; resetAt: number }>()
+
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000 // 15 minutes
+
+function isRateLimited(username: string): boolean {
+  const now = Date.now()
+  const entry = failedAttempts.get(username)
+  if (!entry || now > entry.resetAt) return false
+  return entry.count >= RATE_LIMIT_MAX
+}
+
+function recordFailure(username: string) {
+  const now = Date.now()
+  const entry = failedAttempts.get(username)
+  if (!entry || now > entry.resetAt) {
+    failedAttempts.set(username, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+  } else {
+    entry.count++
+  }
+}
+
+function clearFailures(username: string) {
+  failedAttempts.delete(username)
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,18 +42,30 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null
 
+        const username = credentials.username.trim().toLowerCase()
+
+        if (isRateLimited(username)) {
+          throw new Error('too_many_attempts')
+        }
+
         const { data: user, error } = await supabaseAdmin
           .from('users')
           .select('id, username, password_hash, name, surname, role, section_id, round_id')
           .eq('username', credentials.username)
           .single()
 
-        console.log('[auth] query result:', { user: user?.username, error })
-
-        if (error || !user) return null
+        if (error || !user) {
+          recordFailure(username)
+          return null
+        }
 
         const valid = await bcrypt.compare(credentials.password, user.password_hash)
-        if (!valid) return null
+        if (!valid) {
+          recordFailure(username)
+          return null
+        }
+
+        clearFailures(username)
 
         return {
           id: user.id,
