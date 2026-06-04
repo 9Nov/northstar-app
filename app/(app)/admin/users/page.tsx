@@ -1,13 +1,16 @@
-'use client'
-import { useEffect, useState } from 'react'
+﻿'use client'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Upload, Pencil, Trash2, X, Eye, EyeOff, Search } from 'lucide-react'
+import { Upload, Pencil, Trash2, X, Eye, EyeOff, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<any[]>([])
   const [sections, setSections] = useState<any[]>([])
   const [rounds, setRounds] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
   const [editUser, setEditUser] = useState<any>(null)
   const [deleteUser, setDeleteUser] = useState<any>(null)
   const [saving, setSaving] = useState(false)
@@ -16,21 +19,46 @@ export default function AdminUsersPage() {
   const [form, setForm] = useState({ name: '', surname: '', username: '', section_id: '', round_id: '', password: '' })
   const [showPassword, setShowPassword] = useState(false)
   const [search, setSearch] = useState('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  async function load() {
-    const [uRes, sRes, rRes] = await Promise.all([
-      fetch('/api/admin/users'),
-      fetch('/api/admin/sections'),
-      fetch('/api/admin/rounds'),
-    ])
-    const [uData, sData, rData] = await Promise.all([uRes.json(), sRes.json(), rRes.json()])
-    setUsers(Array.isArray(uData) ? uData : [])
-    setSections(Array.isArray(sData) ? sData : [])
-    setRounds(Array.isArray(rData) ? rData : [])
+  async function loadUsers(q: string, p: number) {
+    setLoading(true)
+    const params = new URLSearchParams({ page: String(p) })
+    if (q) params.set('search', q)
+    const res = await fetch(`/api/admin/users?${params}`)
+    const data = await res.json()
+    setUsers(Array.isArray(data.users) ? data.users : [])
+    setTotal(data.total ?? 0)
+    setTotalPages(data.totalPages ?? 1)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  async function loadMeta() {
+    const [sRes, rRes] = await Promise.all([
+      fetch('/api/admin/sections'),
+      fetch('/api/admin/rounds'),
+    ])
+    const [sData, rData] = await Promise.all([sRes.json(), rRes.json()])
+    setSections(Array.isArray(sData) ? sData : [])
+    setRounds(Array.isArray(rData) ? rData : [])
+  }
+
+  useEffect(() => {
+    loadMeta()
+    loadUsers('', 1)
+  }, [])
+
+  function handleSearchChange(value: string) {
+    setSearch(value)
+    setPage(1)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => loadUsers(value, 1), 400)
+  }
+
+  function handlePageChange(p: number) {
+    setPage(p)
+    loadUsers(search, p)
+  }
 
   function openEdit(u: any) {
     setEditUser(u)
@@ -50,28 +78,15 @@ export default function AdminUsersPage() {
     const data = await res.json()
     setSaving(false)
     if (!res.ok) { setSaveError(data.error); return }
-    setEditUser(null); load()
+    setEditUser(null)
+    loadUsers(search, page)
   }
 
   async function handleDelete() {
     setDeleting(true)
     await fetch(`/api/admin/users/${deleteUser.id}`, { method: 'DELETE' })
-    setDeleting(false); setDeleteUser(null); load()
-  }
-
-  const filtered = users.filter(u =>
-    !search ||
-    u.username.toLowerCase().includes(search.toLowerCase()) ||
-    u.name.toLowerCase().includes(search.toLowerCase()) ||
-    u.surname.toLowerCase().includes(search.toLowerCase())
-  )
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-teal" />
-      </div>
-    )
+    setDeleting(false); setDeleteUser(null)
+    loadUsers(search, page)
   }
 
   return (
@@ -87,66 +102,91 @@ export default function AdminUsersPage() {
       <div className="relative mb-4">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input type="text" placeholder="ค้นหา username หรือชื่อ..."
-          value={search} onChange={e => setSearch(e.target.value)}
+          value={search} onChange={e => handleSearchChange(e.target.value)}
           className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-teal"
         />
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-teal" />
+        </div>
+      ) : users.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
-          {users.length === 0 ? (
+          {total === 0 && !search ? (
             <><p className="text-lg mb-4">ยังไม่มีผู้ใช้ในระบบ</p>
               <Link href="/admin/import" className="text-brand-teal hover:underline text-sm font-medium">Import User จาก Excel</Link></>
           ) : <p>ไม่พบผู้ใช้ที่ค้นหา</p>}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-brand-navy text-white">
-                <th className="text-left px-4 py-3 font-semibold">Username</th>
-                <th className="text-left px-4 py-3 font-semibold">ชื่อ-นามสกุล</th>
-                <th className="text-left px-4 py-3 font-semibold">Section</th>
-                <th className="text-left px-4 py-3 font-semibold">รอบ</th>
-                <th className="text-left px-4 py-3 font-semibold">Role</th>
-                <th className="px-4 py-3 w-20" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.map(u => (
-                <tr key={u.id} className="hover:bg-brand-teal-light/40 transition-colors">
-                  <td className="px-4 py-3 font-mono text-gray-700 text-xs">{u.username}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{u.name} {u.surname}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">{u.sections?.name ?? '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">{u.rounds?.name ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold
-                      ${u.role === 'admin' ? 'bg-brand-navy text-white' : 'bg-brand-teal-light text-brand-teal'}`}>
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button onClick={() => openEdit(u)}
-                        className="p-1.5 text-gray-400 hover:text-brand-navy hover:bg-brand-teal-light rounded-lg transition-colors" title="แก้ไข">
-                        <Pencil size={14} />
-                      </button>
-                      {u.role !== 'admin' && (
-                        <button onClick={() => setDeleteUser(u)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบ">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
+        <>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-brand-navy text-white">
+                  <th className="text-left px-4 py-3 font-semibold">Username</th>
+                  <th className="text-left px-4 py-3 font-semibold">ชื่อ-นามสกุล</th>
+                  <th className="text-left px-4 py-3 font-semibold">Section</th>
+                  <th className="text-left px-4 py-3 font-semibold">รอบ</th>
+                  <th className="text-left px-4 py-3 font-semibold">Role</th>
+                  <th className="px-4 py-3 w-20" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-400 bg-gray-50/50">
-            ทั้งหมด {filtered.length} คน
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {users.map(u => (
+                  <tr key={u.id} className="hover:bg-brand-teal-light/40 transition-colors">
+                    <td className="px-4 py-3 font-mono text-gray-700 text-xs">{u.username}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{u.name} {u.surname}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{u.sections?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{u.rounds?.name ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold
+                        ${u.role === 'admin' ? 'bg-brand-navy text-white' : 'bg-brand-teal-light text-brand-teal'}`}>
+                        {u.role}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button onClick={() => openEdit(u)}
+                          className="p-1.5 text-gray-400 hover:text-brand-navy hover:bg-brand-teal-light rounded-lg transition-colors" title="แก้ไข">
+                          <Pencil size={14} />
+                        </button>
+                        {u.role !== 'admin' && (
+                          <button onClick={() => setDeleteUser(u)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบ">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Footer: count + pagination */}
+            <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                แสดง {users.length} จาก {total} คน
+              </span>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handlePageChange(page - 1)} disabled={page === 1}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-brand-navy hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                    <ChevronLeft size={15} />
+                  </button>
+                  <span className="text-xs text-gray-600 px-2">หน้า {page} / {totalPages}</span>
+                  <button
+                    onClick={() => handlePageChange(page + 1)} disabled={page === totalPages}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-brand-navy hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Edit Modal */}
