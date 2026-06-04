@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -15,7 +15,13 @@ export async function GET() {
     .order('name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+
+  return NextResponse.json(data, {
+    headers: {
+      // Sections change infrequently — cache in browser for 1 minute
+      'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
+    },
+  })
 }
 
 export async function POST(req: Request) {

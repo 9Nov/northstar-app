@@ -1,9 +1,11 @@
-'use client'
+﻿'use client'
 import { useEffect, useState } from 'react'
 import { Plus, ToggleLeft, ToggleRight, ChevronDown, ChevronUp } from 'lucide-react'
 
 export default function AdminRoundsPage() {
   const [rounds, setRounds] = useState<any[]>([])
+  const [sections, setSections] = useState<any[]>([])
+  const [northstarTypes, setNorthstarTypes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [newRoundName, setNewRoundName] = useState('')
@@ -12,14 +14,28 @@ export default function AdminRoundsPage() {
   const [toggling, setToggling] = useState<string | null>(null)
   const [confirmClose, setConfirmClose] = useState<string | null>(null)
 
+  async function loadAll() {
+    // Fetch rounds, sections, northstar-types once — sections/types passed as props
+    // to avoid each QuotaEditorInline re-fetching the same static data
+    const [rRes, sRes, tRes] = await Promise.all([
+      fetch('/api/admin/rounds'),
+      fetch('/api/admin/sections'),
+      fetch('/api/northstar-types'),
+    ])
+    const [rData, sData, tData] = await Promise.all([rRes.json(), sRes.json(), tRes.json()])
+    setRounds(Array.isArray(rData) ? rData : [])
+    setSections(Array.isArray(sData) ? sData : [])
+    setNorthstarTypes(Array.isArray(tData) ? tData : [])
+    setLoading(false)
+  }
+
   async function loadRounds() {
     const res = await fetch('/api/admin/rounds')
     const data = await res.json()
     setRounds(Array.isArray(data) ? data : [])
-    setLoading(false)
   }
 
-  useEffect(() => { loadRounds() }, [])
+  useEffect(() => { loadAll() }, [])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -81,12 +97,18 @@ export default function AdminRoundsPage() {
       ) : (
         <div className="space-y-3">
           {rounds.map(round => (
-            <RoundRow key={round.id} round={round} toggling={toggling === round.id} onToggle={() => handleToggle(round)} />
+            <RoundRow
+              key={round.id}
+              round={round}
+              sections={sections}
+              northstarTypes={northstarTypes}
+              toggling={toggling === round.id}
+              onToggle={() => handleToggle(round)}
+            />
           ))}
         </div>
       )}
 
-      {/* Create Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="create-round-title">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
@@ -112,7 +134,6 @@ export default function AdminRoundsPage() {
         </div>
       )}
 
-      {/* Confirm close */}
       {confirmClose && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
@@ -129,7 +150,13 @@ export default function AdminRoundsPage() {
   )
 }
 
-function RoundRow({ round, toggling, onToggle }: { round: any; toggling: boolean; onToggle: () => void }) {
+function RoundRow({ round, sections, northstarTypes, toggling, onToggle }: {
+  round: any
+  sections: any[]
+  northstarTypes: any[]
+  toggling: boolean
+  onToggle: () => void
+}) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -164,16 +191,18 @@ function RoundRow({ round, toggling, onToggle }: { round: any; toggling: boolean
       </div>
       {expanded && (
         <div className="border-t border-gray-100 px-5 py-4">
-          <QuotaEditorInline roundId={round.id} />
+          <QuotaEditorInline roundId={round.id} sections={sections} northstarTypes={northstarTypes} />
         </div>
       )}
     </div>
   )
 }
 
-function QuotaEditorInline({ roundId }: { roundId: string }) {
-  const [sections, setSections] = useState<any[]>([])
-  const [northstarTypes, setNorthstarTypes] = useState<any[]>([])
+function QuotaEditorInline({ roundId, sections, northstarTypes }: {
+  roundId: string
+  sections: any[]
+  northstarTypes: any[]
+}) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -181,23 +210,16 @@ function QuotaEditorInline({ roundId }: { roundId: string }) {
   const [localQuotas, setLocalQuotas] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    async function load() {
-      const [qRes, sRes, tRes] = await Promise.all([
-        fetch(`/api/admin/rounds/${roundId}/quotas`),
-        fetch('/api/admin/sections'),
-        fetch('/api/northstar-types'),
-      ])
-      const [qData, sData, tData] = await Promise.all([qRes.json(), sRes.json(), tRes.json()])
-      setSections(Array.isArray(sData) ? sData : [])
-      setNorthstarTypes(Array.isArray(tData) ? tData : [])
-      const map: Record<string, string> = {}
-      for (const q of (Array.isArray(qData) ? qData : [])) {
-        map[`${q.section_id}_${q.northstar_type_id}`] = String(q.quota)
-      }
-      setLocalQuotas(map)
-      setLoading(false)
-    }
-    load()
+    fetch(`/api/admin/rounds/${roundId}/quotas`)
+      .then(r => r.json())
+      .then(qData => {
+        const map: Record<string, string> = {}
+        for (const q of (Array.isArray(qData) ? qData : [])) {
+          map[`${q.section_id}_${q.northstar_type_id}`] = String(q.quota)
+        }
+        setLocalQuotas(map)
+        setLoading(false)
+      })
   }, [roundId])
 
   function handleQuotaChange(sectionId: string, typeId: string, val: string) {
