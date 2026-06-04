@@ -1,5 +1,5 @@
-'use client'
-import { useEffect, useState } from 'react'
+﻿'use client'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -14,6 +14,7 @@ const SECTION_COLORS = [
 export default function DashboardPage() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function loadData() {
     const res = await fetch('/api/dashboard')
@@ -22,13 +23,23 @@ export default function DashboardPage() {
     setLoading(false)
   }
 
+  // Debounced version — if multiple registration events fire at once,
+  // wait 800ms after the last one before refetching (prevents stampede)
+  function scheduleReload() {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(loadData, 800)
+  }
+
   useEffect(() => {
     loadData()
     const channel = supabase
       .channel('dashboard-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, loadData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, scheduleReload)
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   if (loading) {
@@ -57,7 +68,6 @@ export default function DashboardPage() {
 
       {rounds.map((round: any) => (
         <div key={round.id} className="space-y-4">
-          {/* Round header */}
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#009989' }} />
             <h2 className="text-base md:text-lg font-bold text-gray-800">{round.name}</h2>
@@ -66,20 +76,16 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          {/* ── MOBILE: Card per Section ── */}
+          {/* MOBILE: Card per Section */}
           <div className="md:hidden space-y-3">
             {(quotaTable[round.id] ?? []).map((row: any) => {
               const typeData = new Map(row.types.map((t: any) => [t.northstar_type_id, t]))
               return (
                 <div key={row.sectionId} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                  {/* Section header */}
                   <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between" style={{ backgroundColor: '#313283' }}>
                     <span className="text-white font-semibold text-sm">{row.sectionName}</span>
-                    <span className="text-white/70 text-xs">
-                      รวม {row.totalUsed}/{row.totalQuota}
-                    </span>
+                    <span className="text-white/70 text-xs">รวม {row.totalUsed}/{row.totalQuota}</span>
                   </div>
-                  {/* Types list */}
                   <div className="divide-y divide-gray-100">
                     {northstarTypes.map((t: any) => {
                       const cell = typeData.get(t.id) as { quota: number; used: number; remaining: number } | undefined
@@ -117,7 +123,7 @@ export default function DashboardPage() {
             })}
           </div>
 
-          {/* ── DESKTOP: Full Table ── */}
+          {/* DESKTOP: Full Table */}
           <div className="hidden md:block bg-white rounded-2xl border border-gray-200 overflow-x-auto shadow-sm">
             <div className="flex flex-wrap items-center gap-3 px-4 pt-3 pb-2 text-xs text-gray-500 border-b border-gray-100">
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" />ยังว่าง</span>
@@ -215,7 +221,7 @@ export default function DashboardPage() {
             </table>
           </div>
 
-          {/* Bar Chart — mobile: shorter + vertical legend */}
+          {/* Bar Chart */}
           <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-700 mb-1">Quota vs ใช้งานจริง</h3>
             <p className="text-xs text-gray-400 mb-3">สีเข้ม = ใช้แล้ว | สีอ่อน = เหลือ</p>
@@ -242,7 +248,6 @@ export default function DashboardPage() {
                 })}
               </BarChart>
             </ResponsiveContainer>
-            {/* Mobile legend — compact chips */}
             <div className="mt-3 flex flex-wrap gap-1.5">
               {sections.map((s: any, i: number) => (
                 <span key={s.id} className="flex items-center gap-1 text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded-full border border-gray-200">

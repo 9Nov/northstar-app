@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -7,7 +7,6 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Get active rounds
   const { data: rounds } = await supabaseAdmin
     .from('rounds')
     .select('id, name')
@@ -18,43 +17,33 @@ export async function GET() {
 
   const roundIds = rounds.map(r => r.id)
 
-  const [{ data: quotas }, { data: registrations }, { data: sections }, { data: northstarTypes }] =
-    await Promise.all([
-      supabaseAdmin
-        .from('round_section_quotas')
-        .select('id, round_id, section_id, northstar_type_id, quota')
-        .in('round_id', roundIds),
-      supabaseAdmin
-        .from('registrations')
-        .select('round_section_quota_id')
-        .in('round_section_quota_id', []),  // overwritten below
-      supabaseAdmin.from('sections').select('id, name'),
-      supabaseAdmin.from('northstar_types').select('id, name, display_order').order('display_order'),
-    ])
+  const [{ data: quotas }, { data: sections }, { data: northstarTypes }] = await Promise.all([
+    supabaseAdmin
+      .from('round_section_quotas')
+      .select('id, round_id, section_id, northstar_type_id, quota')
+      .in('round_id', roundIds),
+    supabaseAdmin.from('sections').select('id, name'),
+    supabaseAdmin.from('northstar_types').select('id, name, display_order').order('display_order'),
+  ])
 
-  // Get all quota ids to fetch registrations
   const quotaIds = (quotas ?? []).map(q => q.id)
   const { data: regs } = await supabaseAdmin
     .from('registrations')
     .select('round_section_quota_id')
     .in('round_section_quota_id', quotaIds)
 
-  // Count used per quota id
   const usedMap = new Map<string, number>()
   for (const reg of regs ?? []) {
     usedMap.set(reg.round_section_quota_id, (usedMap.get(reg.round_section_quota_id) ?? 0) + 1)
   }
 
   const sectionMap = new Map((sections ?? []).map(s => [s.id, s.name]))
-
-  // Build detailed quota table: per round → per section → per northstar type → { quota, used, remaining }
   const quotaTable: Record<string, any[]> = {}
   const chartData: Record<string, any[]> = {}
 
   for (const round of rounds) {
     const roundQuotas = (quotas ?? []).filter(q => q.round_id === round.id)
 
-    // Group by section
     const sectionMap2 = new Map<string, any[]>()
     for (const q of roundQuotas) {
       if (!sectionMap2.has(q.section_id)) sectionMap2.set(q.section_id, [])
@@ -70,13 +59,12 @@ export async function GET() {
     quotaTable[round.id] = Array.from(sectionMap2.entries()).map(([sid, types]) => ({
       sectionId: sid,
       sectionName: sectionMap.get(sid) ?? sid,
-      types, // array of { northstar_type_id, quota, used, remaining }
+      types,
       totalQuota: types.reduce((s, t) => s + t.quota, 0),
       totalUsed: types.reduce((s, t) => s + t.used, 0),
       totalRemaining: types.reduce((s, t) => s + t.remaining, 0),
     }))
 
-    // Chart data: per northstar type, per section → used + remaining (for stacked bar)
     const typeRows = new Map<string, any>()
     for (const nt of northstarTypes ?? []) {
       typeRows.set(nt.id, { type: nt.name })

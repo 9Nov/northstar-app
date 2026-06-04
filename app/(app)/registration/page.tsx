@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { CheckCircle, Lock, AlertCircle } from 'lucide-react'
@@ -35,10 +35,19 @@ export default function RegistrationPage() {
     setLoading(false)
   }
 
+  async function refreshQuotaStatus() {
+    const res = await fetch('/api/registration/quota-status')
+    const quotaData = await res.json()
+    const qMap = new Map<string, any>()
+    for (const q of (Array.isArray(quotaData) ? quotaData : [])) qMap.set(q.northstar_type_id, q)
+    setQuotaStatus(qMap)
+  }
+
   useEffect(() => {
     loadData()
+    // Only refresh quota counts on realtime change — not full reload
     const channel = supabase.channel('reg-quota-watch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, loadData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'registrations' }, refreshQuotaStatus)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [])
@@ -79,7 +88,6 @@ export default function RegistrationPage() {
 
   return (
     <div className="max-w-xl mx-auto">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-brand-navy">ลงทะเบียน Northstar</h1>
         <div className="flex items-center gap-2 mt-1">
@@ -100,7 +108,6 @@ export default function RegistrationPage() {
       )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Locked fields */}
         <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 grid grid-cols-2 gap-4">
           <div>
             <label className="flex items-center gap-1 text-xs font-medium text-gray-500 mb-1.5">
