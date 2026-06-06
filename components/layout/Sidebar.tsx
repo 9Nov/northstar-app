@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { LayoutDashboard, ClipboardList, Users, Upload, Settings, X } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, Users, Upload, Settings, Building2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const userLinks = [
@@ -12,6 +12,7 @@ const userLinks = [
 const adminLinks = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/rounds', label: 'จัดการรอบ', icon: Settings },
+  { href: '/admin/sections', label: 'จัดการ Section', icon: Building2 },
   { href: '/admin/users', label: 'จัดการ User', icon: Users },
   { href: '/admin/import', label: 'Import Excel', icon: Upload },
 ]
