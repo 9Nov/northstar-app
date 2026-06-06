@@ -10,7 +10,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Client sends JSON { rows: PreviewRow[] }
   const body = await req.json()
   const inputRows: any[] = body.rows ?? []
 
@@ -29,9 +28,10 @@ export async function POST(req: Request) {
   const roundMap = new Map((rounds ?? []).map((r: any) => [r.name.toLowerCase(), r.id]))
   const sectionMap = new Map((sections ?? []).map((s: any) => [s.name.toLowerCase(), s.id]))
 
-  let successCount = 0
   const errors: { row: number; username: string; reason: string }[] = []
+  const validRows: { row: number; username: string; password: string; name: string; surname: string; section_id: string; round_id: string }[] = []
 
+  // 1) Validate all rows first (fast — no hashing yet)
   for (const r of inputRows) {
     const rowNum: number = r.row ?? 0
     const username = String(r.username ?? '').trim()
@@ -60,24 +60,37 @@ export async function POST(req: Request) {
       continue
     }
 
-    const password_hash = await bcrypt.hash(password, 10)
-    const { error } = await supabaseAdmin.from('users').insert({
-      username,
-      password_hash,
-      name,
-      surname,
-      role: 'user',
-      section_id: sectionId,
-      round_id: roundId,
-    })
-
-    if (error) {
-      errors.push({ row: rowNum, username, reason: error.message })
-    } else {
-      usernameSet.add(username)
-      successCount++
-    }
+    usernameSet.add(username) // prevent duplicates within the same file
+    validRows.push({ row: rowNum, username, password, name, surname, section_id: sectionId, round_id: roundId })
   }
 
-  return NextResponse.json({ success: successCount, errors })
+  if (validRows.length === 0) {
+    return NextResponse.json({ success: 0, errors })
+  }
+
+  // 2) Hash all passwords in parallel with cost=8 (faster, still secure enough for internal tool)
+  const hashed = await Promise.all(
+    validRows.map(r => bcrypt.hash(r.password, 8))
+  )
+
+  // 3) Batch insert all valid rows at once
+  const insertRows = validRows.map((r, i) => ({
+    username: r.username,
+    password_hash: hashed[i],
+    name: r.name,
+    surname: r.surname,
+    role: 'user',
+    section_id: r.section_id,
+    round_id: r.round_id,
+  }))
+
+  const { error: insertError } = await supabaseAdmin
+    .from('users')
+    .insert(insertRows)
+
+  if (insertError) {
+    return NextResponse.json({ success: 0, errors: [{ row: 0, username: '', reason: insertError.message }] }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: validRows.length, errors })
 }
