@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { Plus, Pencil, Trash2, X, Check, Building2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Check, Building2, Upload } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 interface Section { id: string; name: string }
 
@@ -17,6 +18,14 @@ export default function AdminSectionsPage() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const editRef = useRef<HTMLInputElement>(null)
+
+  // Import states
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [importPreview, setImportPreview] = useState<string[] | null>(null)
+  const [importFileName, setImportFileName] = useState('')
+  const [importError, setImportError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{ added: number; skipped: string[] } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -77,20 +86,96 @@ export default function AdminSectionsPage() {
     setDeleteTarget(null)
   }
 
+  // --- Excel Import ---
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportError(''); setImportResult(null); setImportPreview(null)
+    setImportFileName(file.name)
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer)
+        const wb = XLSX.read(data, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' })
+
+        if (json.length === 0) { setImportError('ไฟล์ไม่มีข้อมูล'); return }
+
+        // รับ column ชื่อ section หรือ Section หรือ name
+        const firstRow = json[0]
+        const colKey = Object.keys(firstRow).find(k =>
+          ['section', 'name', 'section name'].includes(k.toLowerCase().trim())
+        )
+        if (!colKey) {
+          setImportError('ไม่พบ column "section" หรือ "name" ในไฟล์')
+          return
+        }
+
+        const names = json
+          .map(r => String(r[colKey] ?? '').trim())
+          .filter(n => n.length > 0)
+
+        if (names.length === 0) { setImportError('ไม่มีข้อมูลใน column section'); return }
+        setImportPreview(names)
+      } catch {
+        setImportError('ไม่สามารถอ่านไฟล์ได้ กรุณาใช้ไฟล์ Excel (.xlsx .xls)')
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  async function handleImport() {
+    if (!importPreview) return
+    setImporting(true); setImportResult(null)
+
+    const existingNames = new Set(sections.map(s => s.name.toLowerCase()))
+    const toAdd = importPreview.filter(n => !existingNames.has(n.toLowerCase()))
+    const skipped = importPreview.filter(n => existingNames.has(n.toLowerCase()))
+
+    let added = 0
+    for (const name of toAdd) {
+      const res = await fetch('/api/admin/sections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (res.ok) added++
+    }
+
+    setImporting(false)
+    setImportPreview(null)
+    setImportFileName('')
+    if (fileRef.current) fileRef.current.value = ''
+    setImportResult({ added, skipped })
+    load()
+  }
+
   return (
     <div className="max-w-2xl">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-brand-teal-light rounded-xl">
-          <Building2 size={22} className="text-brand-teal" />
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-brand-teal-light rounded-xl">
+            <Building2 size={22} className="text-brand-teal" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">จัดการ Section</h1>
+            <p className="text-sm text-gray-500">เพิ่ม แก้ไข หรือลบ Section ในระบบ</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">จัดการ Section</h1>
-          <p className="text-sm text-gray-500">เพิ่ม แก้ไข หรือลบ Section ในระบบ</p>
-        </div>
+        <button
+          onClick={() => { fileRef.current?.click(); setImportError(''); setImportResult(null) }}
+          className="flex items-center gap-2 border border-gray-200 text-gray-600 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+        >
+          <Upload size={15} />
+          Import จาก Excel
+        </button>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="hidden" />
       </div>
 
       {/* Add form */}
-      <form onSubmit={handleAdd} className="flex gap-2 mb-6">
+      <form onSubmit={handleAdd} className="flex gap-2 mb-4">
         <input
           type="text"
           value={newName}
@@ -111,6 +196,54 @@ export default function AdminSectionsPage() {
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-4">{addError}</p>
       )}
 
+      {/* Import error */}
+      {importError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600 mb-4 flex justify-between items-center">
+          {importError}
+          <button onClick={() => setImportError('')}><X size={14} /></button>
+        </div>
+      )}
+
+      {/* Import preview */}
+      {importPreview && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-semibold text-blue-800 mb-2">
+            พบ {importPreview.length} Section จากไฟล์ "{importFileName}"
+          </p>
+          <div className="max-h-36 overflow-y-auto bg-white rounded-lg border border-blue-100 divide-y divide-blue-50 mb-3">
+            {importPreview.map((n, i) => (
+              <div key={i} className="px-3 py-1.5 text-sm text-gray-700">{n}</div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleImport} disabled={importing}
+              className="bg-brand-navy text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-navy-dark disabled:opacity-50">
+              {importing ? 'กำลัง Import...' : `Import ${importPreview.length} Section`}
+            </button>
+            <button onClick={() => { setImportPreview(null); setImportFileName(''); if (fileRef.current) fileRef.current.value = '' }}
+              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-white">
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Import result */}
+      {importResult && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-semibold text-green-700 mb-1">✓ Import สำเร็จ {importResult.added} Section</p>
+          {importResult.skipped.length > 0 && (
+            <p className="text-xs text-gray-500">ข้ามไป {importResult.skipped.length} รายการที่มีอยู่แล้ว</p>
+          )}
+          <button onClick={() => setImportResult(null)} className="text-xs text-green-600 hover:underline mt-1">ปิด</button>
+        </div>
+      )}
+
+      {/* Import hint */}
+      <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-500 mb-6">
+        รูปแบบ Excel: ต้องมี column ชื่อ <code className="bg-white px-1 rounded">section</code> หรือ <code className="bg-white px-1 rounded">name</code> — แต่ละแถวคือชื่อ Section 1 รายการ
+      </div>
+
       {/* List */}
       {loading ? (
         <div className="flex items-center justify-center h-48">
@@ -120,7 +253,7 @@ export default function AdminSectionsPage() {
         <div className="text-center py-16 text-gray-400">
           <Building2 size={48} className="mx-auto mb-3 text-gray-300" />
           <p className="text-base font-medium">ยังไม่มี Section</p>
-          <p className="text-sm">เริ่มต้นโดยเพิ่ม Section แรกด้านบน</p>
+          <p className="text-sm">เพิ่มทีละรายการด้านบน หรือ Import จาก Excel</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
@@ -131,7 +264,6 @@ export default function AdminSectionsPage() {
             {sections.map(s => (
               <li key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50/60 transition-colors">
                 <div className="w-2 h-2 rounded-full bg-brand-teal shrink-0" />
-
                 {editId === s.id ? (
                   <div className="flex-1 flex items-center gap-2">
                     <input
