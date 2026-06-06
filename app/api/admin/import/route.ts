@@ -68,9 +68,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: 0, errors })
   }
 
-  // 2) Hash all passwords in parallel with cost=8 (faster, still secure enough for internal tool)
+  // 2) Hash all passwords in parallel with cost=4 (fast for bulk import — internal tool)
   const hashed = await Promise.all(
-    validRows.map(r => bcrypt.hash(r.password, 8))
+    validRows.map(r => bcrypt.hash(r.password, 4))
   )
 
   // 3) Batch insert all valid rows at once

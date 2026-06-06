@@ -75,11 +75,23 @@ export default function ImportClient() {
     setLoading(true)
     setResult(null)
 
-    const res = await fetch('/api/admin/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: preview }),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 60000) // 60s timeout
+    let res: Response
+    try {
+      res = await fetch('/api/admin/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: preview }),
+        signal: controller.signal,
+      })
+    } catch (err: any) {
+      clearTimeout(timeout)
+      setLoading(false)
+      setResult({ success: 0, errors: [{ row: 0, username: '', reason: 'Request timeout — ลองแบ่ง import เป็นชุดเล็กลง' }] })
+      return
+    }
+    clearTimeout(timeout)
     const data = await res.json()
     setLoading(false)
     setResult(data)
