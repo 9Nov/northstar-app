@@ -18,6 +18,7 @@ interface ImportResult {
 }
 
 const REQUIRED_COLUMNS = ['username', 'password', 'section', 'name', 'surname', 'round']
+const BATCH_SIZE = 30
 
 export default function ImportClient() {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -26,13 +27,12 @@ export default function ImportClient() {
   const [result, setResult] = useState<ImportResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [fileName, setFileName] = useState('')
+  const [progress, setProgress] = useState({ done: 0, total: 0 })
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setFileError('')
-    setResult(null)
-    setPreview(null)
+    setFileError(''); setResult(null); setPreview(null)
     setFileName(file.name)
 
     const reader = new FileReader()
@@ -52,7 +52,7 @@ export default function ImportClient() {
           return
         }
 
-        const rows: PreviewRow[] = json.slice(0, 200).map((r, i) => ({
+        const rows: PreviewRow[] = json.map((r, i) => ({
           row: i + 2,
           username: String(r['username'] || r['Username'] || '').trim(),
           password: String(r['password'] || r['Password'] || '').trim(),
@@ -72,41 +72,54 @@ export default function ImportClient() {
 
   async function handleImport() {
     if (!preview) return
-    setLoading(true)
-    setResult(null)
+    setLoading(true); setResult(null)
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 60000) // 60s timeout
-    let res: Response
-    try {
-      res = await fetch('/api/admin/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: preview }),
-        signal: controller.signal,
-      })
-    } catch (err: any) {
-      clearTimeout(timeout)
-      setLoading(false)
-      setResult({ success: 0, errors: [{ row: 0, username: '', reason: 'Request timeout — ลองแบ่ง import เป็นชุดเล็กลง' }] })
-      return
+    const allErrors: ImportResult['errors'] = []
+    let totalSuccess = 0
+
+    // Split into batches of BATCH_SIZE
+    const batches: PreviewRow[][] = []
+    for (let i = 0; i < preview.length; i += BATCH_SIZE) {
+      batches.push(preview.slice(i, i + BATCH_SIZE))
     }
-    clearTimeout(timeout)
-    const data = await res.json()
+
+    setProgress({ done: 0, total: preview.length })
+
+    for (const batch of batches) {
+      try {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 30000)
+        const res = await fetch('/api/admin/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: batch }),
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
+        const data = await res.json()
+        totalSuccess += data.success ?? 0
+        if (Array.isArray(data.errors)) allErrors.push(...data.errors)
+      } catch {
+        // batch timed out — mark all rows in batch as error
+        batch.forEach(r => allErrors.push({ row: r.row, username: r.username, reason: 'Timeout — ลองใหม่' }))
+      }
+      setProgress(prev => ({ ...prev, done: prev.done + batch.length }))
+    }
+
     setLoading(false)
-    setResult(data)
+    setResult({ success: totalSuccess, errors: allErrors })
     setPreview(null)
     if (fileRef.current) fileRef.current.value = ''
     setFileName('')
+    setProgress({ done: 0, total: 0 })
   }
 
   function handleReset() {
-    setPreview(null)
-    setResult(null)
-    setFileError('')
-    setFileName('')
+    setPreview(null); setResult(null); setFileError(''); setFileName('')
     if (fileRef.current) fileRef.current.value = ''
   }
+
+  const progressPct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
 
   return (
     <div className="p-8 max-w-4xl">
@@ -114,7 +127,7 @@ export default function ImportClient() {
       <p className="text-gray-500 mb-6">อัปโหลดไฟล์ Excel ที่มีคอลัมน์: username, password, section, name, surname, round</p>
 
       {/* Upload zone */}
-      {!preview && !result && (
+      {!preview && !result && !loading && (
         <div
           className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:border-teal-400 transition-colors cursor-pointer"
           onClick={() => fileRef.current?.click()}
@@ -129,13 +142,11 @@ export default function ImportClient() {
       )}
 
       {fileError && (
-        <div className="mt-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-          {fileError}
-        </div>
+        <div className="mt-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">{fileError}</div>
       )}
 
       {/* Preview table */}
-      {preview && (
+      {preview && !loading && (
         <div className="mt-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-gray-700">{fileName} — {preview.length} แถว</h2>
@@ -175,8 +186,25 @@ export default function ImportClient() {
             disabled={loading}
             className="bg-teal-700 hover:bg-teal-800 disabled:bg-teal-400 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors"
           >
-            {loading ? 'กำลัง Import...' : `Import ${preview.length} แถว`}
+            Import {preview.length} แถว
           </button>
+        </div>
+      )}
+
+      {/* Progress */}
+      {loading && (
+        <div className="mt-6 bg-white border border-gray-200 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">กำลัง Import...</span>
+            <span className="text-sm text-gray-500">{progress.done} / {progress.total} คน</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+            <div
+              className="h-3 rounded-full bg-teal-500 transition-all duration-300"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-2">แบ่งเป็น batch ละ {BATCH_SIZE} คน — กรุณารอสักครู่</p>
         </div>
       )}
 
@@ -196,24 +224,26 @@ export default function ImportClient() {
               <div className="px-4 py-3 bg-red-50 border-b border-red-100">
                 <h3 className="font-semibold text-red-700">แถวที่มีปัญหา</h3>
               </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-gray-600 text-left">
-                    <th className="px-4 py-2.5">แถว</th>
-                    <th className="px-4 py-2.5">Username</th>
-                    <th className="px-4 py-2.5">สาเหตุ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.errors.map((e, i) => (
-                    <tr key={i} className="border-t border-gray-50">
-                      <td className="px-4 py-2.5 text-gray-500">{e.row}</td>
-                      <td className="px-4 py-2.5 font-medium text-gray-700">{e.username || '-'}</td>
-                      <td className="px-4 py-2.5 text-red-600">{e.reason}</td>
+              <div className="max-h-72 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="text-gray-600 text-left">
+                      <th className="px-4 py-2.5">แถว</th>
+                      <th className="px-4 py-2.5">Username</th>
+                      <th className="px-4 py-2.5">สาเหตุ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {result.errors.map((e, i) => (
+                      <tr key={i} className="border-t border-gray-50">
+                        <td className="px-4 py-2.5 text-gray-500">{e.row}</td>
+                        <td className="px-4 py-2.5 font-medium text-gray-700">{e.username || '-'}</td>
+                        <td className="px-4 py-2.5 text-red-600">{e.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
