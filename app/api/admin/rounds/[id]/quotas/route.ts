@@ -24,8 +24,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // quotas: Array<{ section_id, northstar_type_id, quota }>
-  const { quotas } = await req.json()
+  const body = await req.json()
+  const quotas = body.entries ?? body.quotas
   if (!Array.isArray(quotas) || quotas.length === 0) {
     return NextResponse.json({ error: 'ต้องมีอย่างน้อย 1 Section พร้อม Quota' }, { status: 400 })
   }
