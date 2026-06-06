@@ -36,17 +36,6 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     }
   }
 
-  // Delete existing quotas for this round then re-insert
-  const { error: delErr } = await supabaseAdmin
-    .from('round_section_quotas')
-    .delete()
-    .eq('round_id', params.id)
-
-  if (delErr) {
-    console.error('[quotas] delete error:', JSON.stringify(delErr))
-    return NextResponse.json({ error: delErr.message }, { status: 500 })
-  }
-
   const rows = quotas.map((q: any) => ({
     round_id: params.id,
     section_id: q.section_id,
@@ -54,15 +43,14 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     quota: q.quota,
   }))
 
-  console.log('[quotas] inserting rows:', rows.length)
-
+  // Upsert rows that have quota > 0
   const { data, error } = await supabaseAdmin
     .from('round_section_quotas')
-    .insert(rows)
+    .upsert(rows, { onConflict: 'round_id,section_id,northstar_type_id' })
     .select()
 
   if (error) {
-    console.error('[quotas] insert error:', JSON.stringify(error))
+    console.error('[quotas] upsert error:', JSON.stringify(error))
     return NextResponse.json({ error: error.message, details: error }, { status: 500 })
   }
   return NextResponse.json(data)
