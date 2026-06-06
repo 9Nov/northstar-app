@@ -42,7 +42,10 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     .delete()
     .eq('round_id', params.id)
 
-  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+  if (delErr) {
+    console.error('[quotas] delete error:', JSON.stringify(delErr))
+    return NextResponse.json({ error: delErr.message }, { status: 500 })
+  }
 
   const rows = quotas.map((q: any) => ({
     round_id: params.id,
@@ -51,11 +54,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     quota: q.quota,
   }))
 
+  console.log('[quotas] inserting rows:', rows.length)
+
   const { data, error } = await supabaseAdmin
     .from('round_section_quotas')
     .insert(rows)
     .select()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[quotas] insert error:', JSON.stringify(error))
+    return NextResponse.json({ error: error.message, details: error }, { status: 500 })
+  }
   return NextResponse.json(data)
 }
