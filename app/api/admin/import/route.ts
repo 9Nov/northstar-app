@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
-import * as XLSX from 'xlsx'
 import bcrypt from 'bcryptjs'
-
-const REQUIRED_COLUMNS = ['username', 'password', 'section', 'name', 'surname', 'round']
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
@@ -13,32 +10,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const formData = await req.formData()
-  const file = formData.get('file') as File | null
-  if (!file) return NextResponse.json({ error: 'ไม่พบไฟล์' }, { status: 400 })
+  // Client sends JSON { rows: PreviewRow[] }
+  const body = await req.json()
+  const inputRows: any[] = body.rows ?? []
 
-  const buffer = Buffer.from(await file.arrayBuffer())
-  let workbook: XLSX.WorkBook
-  try {
-    workbook = XLSX.read(buffer, { type: 'buffer' })
-  } catch {
-    return NextResponse.json({ error: 'ไม่สามารถอ่านไฟล์ Excel ได้' }, { status: 400 })
-  }
-
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
-
-  if (rows.length === 0) {
-    return NextResponse.json({ error: 'ไฟล์ Excel ว่างเปล่า' }, { status: 400 })
-  }
-
-  const headers = Object.keys(rows[0]).map(k => k.toLowerCase().trim())
-  const missing = REQUIRED_COLUMNS.filter(c => !headers.includes(c))
-  if (missing.length > 0) {
-    return NextResponse.json(
-      { error: `Column ไม่ครบ — ขาด: ${missing.join(', ')}` },
-      { status: 400 }
-    )
+  if (!Array.isArray(inputRows) || inputRows.length === 0) {
+    return NextResponse.json({ error: 'ไม่มีข้อมูลที่จะ Import' }, { status: 400 })
   }
 
   // Load existing usernames, rounds, sections
@@ -53,34 +30,33 @@ export async function POST(req: Request) {
   const sectionMap = new Map((sections ?? []).map((s: any) => [s.name.toLowerCase(), s.id]))
 
   let successCount = 0
-  const errors: { row: number; reason: string }[] = []
+  const errors: { row: number; username: string; reason: string }[] = []
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    const rowNum = i + 2
-    const username = String(row['username'] ?? '').trim()
-    const password = String(row['password'] ?? '').trim()
-    const sectionName = String(row['section'] ?? '').trim()
-    const name = String(row['name'] ?? '').trim()
-    const surname = String(row['surname'] ?? '').trim()
-    const roundName = String(row['round'] ?? '').trim()
+  for (const r of inputRows) {
+    const rowNum: number = r.row ?? 0
+    const username = String(r.username ?? '').trim()
+    const password = String(r.password ?? '').trim()
+    const sectionName = String(r.section ?? '').trim()
+    const name = String(r.name ?? '').trim()
+    const surname = String(r.surname ?? '').trim()
+    const roundName = String(r.round ?? '').trim()
 
     if (!username || !password || !sectionName || !name || !surname || !roundName) {
-      errors.push({ row: rowNum, reason: 'ข้อมูลไม่ครบถ้วน' })
+      errors.push({ row: rowNum, username, reason: 'ข้อมูลไม่ครบถ้วน' })
       continue
     }
     if (usernameSet.has(username)) {
-      errors.push({ row: rowNum, reason: `username "${username}" ซ้ำในระบบ` })
+      errors.push({ row: rowNum, username, reason: `username "${username}" ซ้ำในระบบ` })
       continue
     }
     const roundId = roundMap.get(roundName.toLowerCase())
     if (!roundId) {
-      errors.push({ row: rowNum, reason: `ไม่พบรอบ "${roundName}" ในระบบ` })
+      errors.push({ row: rowNum, username, reason: `ไม่พบรอบ "${roundName}" ในระบบ` })
       continue
     }
     const sectionId = sectionMap.get(sectionName.toLowerCase())
     if (!sectionId) {
-      errors.push({ row: rowNum, reason: `ไม่พบ Section "${sectionName}" ในระบบ` })
+      errors.push({ row: rowNum, username, reason: `ไม่พบ Section "${sectionName}" ในระบบ` })
       continue
     }
 
@@ -96,12 +72,12 @@ export async function POST(req: Request) {
     })
 
     if (error) {
-      errors.push({ row: rowNum, reason: error.message })
+      errors.push({ row: rowNum, username, reason: error.message })
     } else {
       usernameSet.add(username)
       successCount++
     }
   }
 
-  return NextResponse.json({ successCount, errors })
+  return NextResponse.json({ success: successCount, errors })
 }
