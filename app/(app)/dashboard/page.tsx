@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import * as XLSX from 'xlsx'
 
 const SECTION_COLORS = [
   '#009989','#313283','#FAA61B','#e53e3e','#6366f1',
@@ -14,7 +15,20 @@ const SECTION_COLORS = [
 export default function DashboardPage() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  async function handleExport() {
+    setExporting(true)
+    const res = await fetch('/api/admin/export')
+    const rows = await res.json()
+    setExporting(false)
+    if (!Array.isArray(rows) || rows.length === 0) { alert('ไม่มีข้อมูลที่จะ Export'); return }
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Registrations')
+    XLSX.writeFile(wb, `northstar-registrations-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
 
   async function loadData() {
     const res = await fetch('/api/dashboard')
@@ -62,9 +76,22 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-xl md:text-2xl font-bold" style={{ color: '#313283' }}>
-        Quota Monitor Dashboard
-      </h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl md:text-2xl font-bold" style={{ color: '#313283' }}>
+          Quota Monitor Dashboard
+        </h1>
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors shadow-sm disabled:opacity-50"
+          style={{ backgroundColor: '#009989' }}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {exporting ? 'กำลัง Export...' : 'Export Excel'}
+        </button>
+      </div>
 
       {rounds.map((round: any) => (
         <div key={round.id} className="space-y-4">
