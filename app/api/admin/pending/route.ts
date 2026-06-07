@@ -26,39 +26,46 @@ export async function GET(req: Request) {
   const { data: users, error: userErr } = await userQuery
   if (userErr) return NextResponse.json({ error: userErr.message }, { status: 500 })
 
-  // Get all registrations (user_id list)
+  // Get all registrations with northstar type name
   const { data: registrations, error: regErr } = await supabaseAdmin
     .from('registrations')
-    .select('user_id')
+    .select('user_id, round_section_quotas(northstar_types(name))')
 
   if (regErr) return NextResponse.json({ error: regErr.message }, { status: 500 })
 
-  const registeredIds = new Set((registrations ?? []).map((r: any) => r.user_id))
+  // Map user_id -> northstar type name
+  const regMap = new Map<string, string>()
+  for (const r of (registrations ?? [])) {
+    const ntName = (r.round_section_quotas as any)?.northstar_types?.name ?? '-'
+    regMap.set(r.user_id, ntName)
+  }
 
-  // Filter users who have NOT registered
-  const pending = (users ?? []).filter((u: any) => !registeredIds.has(u.id))
-
-  // Group by section
+  // Group all users by section
   const grouped: Record<string, { sectionId: string; sectionName: string; users: any[] }> = {}
-  for (const u of pending) {
+  for (const u of (users ?? [])) {
     const sec = u.sections as unknown as { id: string; name: string } | null
     const sectionId = sec?.id ?? 'none'
     const sectionName = sec?.name ?? 'ไม่มี Section'
     if (!grouped[sectionId]) {
       grouped[sectionId] = { sectionId, sectionName, users: [] }
     }
+    const northstarType = regMap.get(u.id) ?? null
     grouped[sectionId].users.push({
       id: u.id,
       name: u.name,
       surname: u.surname,
       username: u.username,
       round: (u.rounds as any)?.name ?? '-',
+      northstarType,
+      registered: regMap.has(u.id),
     })
   }
 
-  const result = Object.values(grouped).sort((a, b) =>
-    a.sectionName.localeCompare(b.sectionName, 'th')
-  )
+  const result = Object.values(grouped)
+    .sort((a, b) => a.sectionName.localeCompare(b.sectionName, 'th'))
 
-  return NextResponse.json({ total: pending.length, sections: result })
+  const totalAll = (users ?? []).length
+  const totalPending = (users ?? []).filter((u: any) => !regMap.has(u.id)).length
+
+  return NextResponse.json({ totalAll, totalPending, sections: result })
 }
