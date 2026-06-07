@@ -5,6 +5,7 @@ import { SECTION_COLORS } from '@/lib/constants'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
+import * as XLSX from 'xlsx'
 
 interface Round { id: string; name: string; is_open: boolean }
 interface Quota { id: string; round_id: string; section_id: string; northstar_type_id: string; quota: number; sections: { id: string; name: string } | null; northstar_types: { id: string; name: string; display_order: number } | null }
@@ -92,6 +93,22 @@ export default function DashboardClient({ initialRounds, initialQuotas, initialR
   const totalUsed = quotaRows.reduce((sum, r) => sum + r.used, 0)
   const totalQuota = quotaRows.reduce((sum, r) => sum + r.total_quota, 0)
 
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport(roundId?: string) {
+    setExporting(true)
+    const url = roundId ? `/api/admin/export?round_id=${roundId}` : '/api/admin/export'
+    const res = await fetch(url)
+    const data = await res.json()
+    setExporting(false)
+    if (!Array.isArray(data) || data.length === 0) { alert('ไม่มีข้อมูลที่จะ Export'); return }
+
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Registrations')
+    XLSX.writeFile(wb, `northstar-registrations-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -99,9 +116,21 @@ export default function DashboardClient({ initialRounds, initialQuotas, initialR
           <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
           <p className="text-gray-500">Quota Monitor แบบ Real-time — {initialRounds.map(r => r.name).join(', ')}</p>
         </div>
-        <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full ${connected ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
-          <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`} />
-          {connected ? 'Real-time เชื่อมต่อแล้ว' : 'กำลังเชื่อมต่อ...'}
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full ${connected ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`} />
+            {connected ? 'Real-time เชื่อมต่อแล้ว' : 'กำลังเชื่อมต่อ...'}
+          </div>
+          <button
+            onClick={() => handleExport()}
+            disabled={exporting}
+            className="flex items-center gap-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            {exporting ? 'กำลัง Export...' : 'Export Excel'}
+          </button>
         </div>
       </div>
 
