@@ -41,7 +41,7 @@ export async function GET(req: Request) {
   // Group by section
   const grouped: Record<string, { sectionId: string; sectionName: string; users: any[] }> = {}
   for (const u of pending) {
-    const sec = u.sections as { id: string; name: string } | null
+    const sec = u.sections as unknown as { id: string; name: string } | null
     const sectionId = sec?.id ?? 'none'
     const sectionName = sec?.name ?? 'ไม่มี Section'
     if (!grouped[sectionId]) {
