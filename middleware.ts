@@ -29,6 +29,6 @@ export default withAuth(
 export const config = {
   // Protect all pages except login, api/auth, and static assets
   matcher: [
-    '/((?!login|api/auth|_next/static|_next/image|favicon.ico).*)',
+    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:jpg|jpeg|png|gif|svg|webp|ico)).*)',
   ],
 }
