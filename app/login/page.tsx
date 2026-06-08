@@ -36,7 +36,7 @@ export default function LoginPage() {
         <div className="relative z-10 flex flex-col items-center text-center">
           <div className="rounded-full bg-white p-4 mb-8 shadow-2xl inline-block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/care_logo.jpg" alt="CARE Logo" width={140} height={140} className="object-contain" />
+            <img src="/care_logo.png" alt="CARE Logo" width={140} height={140} className="object-contain" />
           </div>
           <h1 className="text-4xl font-bold text-white mb-3 text-center">You are the one of Northstar</h1>
           <p className="text-white/70 text-sm leading-relaxed text-center">พร้อมที่จะเป็น Northstar แล้วรึยัง</p>
@@ -48,7 +48,7 @@ export default function LoginPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-8">
         <div className="lg:hidden flex flex-col items-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/care_logo.jpg" alt="CARE Logo" width={80} height={80} className="object-contain mb-2" />
+          <img src="/care_logo.png" alt="CARE Logo" width={80} height={80} className="object-contain mb-2" />
           <p className="font-bold text-brand-navy text-xl">Northstar Management</p>
         </div>
 
