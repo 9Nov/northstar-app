@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
+// Image import removed - using standard img tag for logo
 
 export default function LoginPage() {
   const router = useRouter()
@@ -35,7 +35,8 @@ export default function LoginPage() {
         <div className="absolute top-1/2 right-0 w-32 h-32 bg-brand-red/10 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="relative z-10 flex flex-col items-center text-center">
           <div className="rounded-full bg-white p-4 mb-8 shadow-2xl inline-block">
-            <Image src="/care_logo.jpg" alt="CARE Logo" width={140} height={140} className="object-contain" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/care_logo.jpg" alt="CARE Logo" width={140} height={140} className="object-contain" />
           </div>
           <h1 className="text-4xl font-bold text-white mb-3 text-center">You are the one of Northstar</h1>
           <p className="text-white/70 text-sm leading-relaxed text-center">พร้อมที่จะเป็น Northstar แล้วรึยัง</p>
@@ -46,7 +47,8 @@ export default function LoginPage() {
       {/* Right panel */}
       <div className="flex-1 flex flex-col items-center justify-center p-8">
         <div className="lg:hidden flex flex-col items-center mb-8">
-          <Image src="/care_logo.jpg" alt="CARE Logo" width={80} height={80} className="object-contain mb-2" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/care_logo.jpg" alt="CARE Logo" width={80} height={80} className="object-contain mb-2" />
           <p className="font-bold text-brand-navy text-xl">Northstar Management</p>
         </div>
 
